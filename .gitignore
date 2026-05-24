@@ -1,0 +1,63 @@
+# 目录下所有用户自定义的 .gitignore 内容都会被保留，不会冲突
+
+## 视觉工作室
+.vs/
+*.user
+*.useross
+*.sln.docstates
+*.suo
+
+## 构建输出
+[Bb]in/
+[Oo]bj/
+[Rr]elease/
+[Dd]ebug/
+x64/
+x86/
+artifacts/
+msbuild.log
+
+## NuGet 包
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.assets.json
+.nuget/
+
+## 日志和测试结果
+*.log
+*.testlog
+TestResults/
+*.coverage
+*.coveragexml
+
+## 发布文件
+*.[Pp]ublish.xml
+*.pubxml
+*.pubxml.user
+
+## WPF / XAML / 设计器
+*.pidb
+*.svclog
+*.resources
+*.Designer.cs
+
+## 工具/缓存
+*.dotCover
+*.resharper
+*.resharper.user
+_ReSharper*/
+*.[Rr]e[Ss]harper
+.idea/
+*.crash
+*.jfm
+
+## 操作系统文件
+Thumbs.db
+.DS_Store
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+
+## 自定义忽略（你可以自己加）

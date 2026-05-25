@@ -1,9 +1,11 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using SerialPortTool.Helpers;
 using SerialPortTool.Models;
 using SerialPortTool.Services;
@@ -26,6 +28,26 @@ public class MainViewModel : INotifyPropertyChanged
     public bool CanAddPort => Ports.Count < 2;
     public bool CanRemovePort => Ports.Count > 1;
 
+    private int _openPortCount;
+
+    /// <summary>当前已打开的串口数量（0、1 或 2）。</summary>
+    public int OpenPortCount
+    {
+        get => _openPortCount;
+        private set
+        {
+            if (_openPortCount == value) return;
+            _openPortCount = value;
+            OnPropertyChanged(nameof(OpenPortCount));
+            OnPropertyChanged(nameof(TaskbarOverlay));
+            OnPropertyChanged(nameof(TaskbarOverlayDescription));
+        }
+    }
+
+    public ImageSource TaskbarOverlay => TaskbarBadgeHelper.CreateOverlay(OpenPortCount);
+
+    public string TaskbarOverlayDescription => TaskbarBadgeHelper.GetDescription(OpenPortCount);
+
     public ICommand OpenAllCommand { get; }
     public ICommand CloseAllCommand { get; }
     public ICommand RefreshAllCommand { get; }
@@ -39,24 +61,65 @@ public class MainViewModel : INotifyPropertyChanged
         if (!string.IsNullOrWhiteSpace(_appSettings.NotepadPlusPlusPath))
             NotepadPlusPlusLauncher.SetUserConfiguredPath(_appSettings.NotepadPlusPlusPath);
 
-        // 默认添加一个串口
-        AddPortInternal();
-
         OpenAllCommand = new RelayCommand(_ => OpenAllPorts(), _ => true);
         CloseAllCommand = new RelayCommand(_ => CloseAllPorts(), _ => true);
         RefreshAllCommand = new RelayCommand(_ => RefreshAllPorts(), _ => true);
         ExitCommand = new RelayCommand(_ => Application.Current.Shutdown());
         AddPortCommand = new RelayCommand(_ => AddPort(), _ => CanAddPort);
+
+        Ports.CollectionChanged += OnPortsCollectionChanged;
+        AddPortInternal();
+    }
+
+    private void OnPortsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems != null)
+        {
+            foreach (SerialPortViewModel port in e.NewItems)
+                SubscribePortEvents(port);
+        }
+
+        if (e.OldItems != null)
+        {
+            foreach (SerialPortViewModel port in e.OldItems)
+                UnsubscribePortEvents(port);
+        }
+
+        UpdateOpenPortCount();
+        OnPropertyChanged(nameof(CanAddPort));
+        OnPropertyChanged(nameof(CanRemovePort));
+    }
+
+    private void SubscribePortEvents(SerialPortViewModel port)
+    {
+        port.PropertyChanged += OnPortPropertyChanged;
+        port.Service.PortOpened += OnPortOpenStateChanged;
+        port.Service.PortClosed += OnPortOpenStateChanged;
+    }
+
+    private void UnsubscribePortEvents(SerialPortViewModel port)
+    {
+        port.PropertyChanged -= OnPortPropertyChanged;
+        port.Service.PortOpened -= OnPortOpenStateChanged;
+        port.Service.PortClosed -= OnPortOpenStateChanged;
+    }
+
+    private void OnPortPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SerialPortViewModel.StatusMessage))
+            UpdateGlobalStatus();
+    }
+
+    private void OnPortOpenStateChanged(object? sender, EventArgs e) => UpdateOpenPortCount();
+
+    private void UpdateOpenPortCount()
+    {
+        OpenPortCount = Ports.Count(p => p.Service.IsOpen);
     }
 
     private void AddPortInternal()
     {
         var port = new SerialPortViewModel(Ports.Count, _appSettings);
-        port.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(SerialPortViewModel.StatusMessage))
-                UpdateGlobalStatus();
-        };
         Ports.Add(port);
         port.RefreshPorts();
         UpdateGlobalStatus();

@@ -11,8 +11,12 @@
         Height="800" Width="900"
         MinHeight="600" MinWidth="600"
         Background="{StaticResource BgBrush}"
-        WindowStartupLocation="CenterScreen"
-        Icon="{StaticResource AppLogoImage}">
+        WindowStartupLocation="CenterScreen">
+
+    <Window.TaskbarItemInfo>
+        <TaskbarItemInfo Overlay="{Binding TaskbarOverlay}"
+                         Description="{Binding TaskbarOverlayDescription}"/>
+    </Window.TaskbarItemInfo>
 
     <Window.DataContext>
         <vm:MainViewModel x:Name="ViewModel"/>

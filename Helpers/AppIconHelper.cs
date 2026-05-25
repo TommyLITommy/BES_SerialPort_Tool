@@ -29,10 +29,24 @@ public static class AppIconHelper
     {
         if (drawing?.Drawing == null) return null;
 
+        var bounds = drawing.Drawing.Bounds;
+        if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0)
+            return null;
+
+        const double paddingRatio = 0.04;
+        var targetSize = size * (1 - paddingRatio * 2);
+        var scale = Math.Min(targetSize / bounds.Width, targetSize / bounds.Height);
+        var scaledWidth = bounds.Width * scale;
+        var scaledHeight = bounds.Height * scale;
+        var offsetX = (size - scaledWidth) / 2 - bounds.X * scale;
+        var offsetY = (size - scaledHeight) / 2 - bounds.Y * scale;
+
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
+            dc.PushTransform(new MatrixTransform(scale, 0, 0, scale, offsetX, offsetY));
             dc.DrawDrawing(drawing.Drawing);
+            dc.Pop();
         }
 
         var bitmap = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);

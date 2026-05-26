@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace SerialPortTool.Helpers;
@@ -37,5 +39,39 @@ public static class RegexHelper
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// 按未转义的竖线拆分为多个子正则（用于多色高亮，与过滤用的 OR 写法一致）。
+    /// </summary>
+    public static IReadOnlyList<string> SplitAlternationPatterns(string pattern)
+    {
+        if (string.IsNullOrEmpty(pattern))
+            return Array.Empty<string>();
+
+        var parts = new List<string>();
+        var current = new StringBuilder();
+        for (int i = 0; i < pattern.Length; i++)
+        {
+            char c = pattern[i];
+            if (c == '\\' && i + 1 < pattern.Length)
+            {
+                current.Append(c);
+                current.Append(pattern[++i]);
+                continue;
+            }
+
+            if (c == '|')
+            {
+                parts.Add(current.ToString());
+                current.Clear();
+                continue;
+            }
+
+            current.Append(c);
+        }
+
+        parts.Add(current.ToString());
+        return parts;
     }
 }

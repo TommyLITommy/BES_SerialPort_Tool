@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,6 +8,7 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using SerialPortTool.Helpers;
 using SerialPortTool.Models;
 using SerialPortTool.ViewModels;
 
@@ -143,6 +145,18 @@ public class DirectionColorConverter : IValueConverter
 // ===================== 高亮文本 =====================
 public class HighlightTextBlock : TextBlock
 {
+    private static readonly (Color Background, Color Foreground)[] MultiHighlightStyles =
+    {
+        (Color.FromRgb(255, 215, 0), Colors.Black),
+        (Color.FromRgb(173, 216, 230), Colors.Black),
+        (Color.FromRgb(152, 251, 152), Colors.Black),
+        (Color.FromRgb(255, 182, 193), Colors.Black),
+        (Color.FromRgb(221, 160, 221), Colors.Black),
+        (Color.FromRgb(255, 228, 181), Colors.Black),
+        (Color.FromRgb(176, 224, 230), Colors.Black),
+        (Color.FromRgb(255, 160, 122), Colors.Black),
+    };
+
     public static readonly DependencyProperty SourceTextProperty =
         DependencyProperty.Register(nameof(SourceText), typeof(string), typeof(HighlightTextBlock),
             new PropertyMetadata("", OnHighlightPropertyChanged));
@@ -199,22 +213,11 @@ public class HighlightTextBlock : TextBlock
 
             try
             {
-                var matches = Regex.Matches(text, pattern, RegexOptions.None, SerialPortTool.Helpers.RegexHelper.DefaultMatchTimeout);
-                int last = 0;
-                foreach (Match m in matches)
-                {
-                    if (m.Index > last)
-                        Inlines.Add(new Run(text.Substring(last, m.Index - last)) { Foreground = baseFg });
-                    Inlines.Add(new Run(m.Value)
-                    {
-                        Background = new SolidColorBrush(Color.FromRgb(255, 215, 0)),
-                        Foreground = Brushes.Black,
-                        FontWeight = FontWeights.Bold
-                    });
-                    last = m.Index + m.Length;
-                }
-                if (last < text.Length)
-                    Inlines.Add(new Run(text.Substring(last)) { Foreground = baseFg });
+                var subPatterns = RegexHelper.SplitAlternationPatterns(pattern);
+                if (subPatterns.Count > 1)
+                    ApplyMultiPatternHighlight(text, subPatterns, baseFg);
+                else
+                    ApplySinglePatternHighlight(text, pattern, baseFg);
             }
             catch (RegexMatchTimeoutException)
             {
@@ -229,5 +232,89 @@ public class HighlightTextBlock : TextBlock
         {
             _isUpdating = false;
         }
+    }
+
+    private void ApplySinglePatternHighlight(string text, string pattern, Brush baseFg)
+    {
+        var matches = Regex.Matches(text, pattern, RegexOptions.None, RegexHelper.DefaultMatchTimeout);
+        int last = 0;
+        foreach (Match m in matches)
+        {
+            if (m.Index > last)
+                Inlines.Add(new Run(text.Substring(last, m.Index - last)) { Foreground = baseFg });
+            Inlines.Add(new Run(m.Value)
+            {
+                Background = new SolidColorBrush(MultiHighlightStyles[0].Background),
+                Foreground = Brushes.Black,
+                FontWeight = FontWeights.Bold
+            });
+            last = m.Index + m.Length;
+        }
+        if (last < text.Length)
+            Inlines.Add(new Run(text.Substring(last)) { Foreground = baseFg });
+    }
+
+    private void ApplyMultiPatternHighlight(string text, IReadOnlyList<string> subPatterns, Brush baseFg)
+    {
+        var spans = new List<(int Index, int Length, int PatternIndex)>();
+
+        for (int pi = 0; pi < subPatterns.Count; pi++)
+        {
+            string sub = subPatterns[pi];
+            if (string.IsNullOrEmpty(sub))
+                continue;
+
+            try
+            {
+                var matches = Regex.Matches(text, sub, RegexOptions.None, RegexHelper.DefaultMatchTimeout);
+                foreach (Match m in matches)
+                {
+                    if (m.Success && m.Length > 0)
+                        spans.Add((m.Index, m.Length, pi));
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
+
+        if (spans.Count == 0)
+        {
+            Inlines.Add(new Run(text) { Foreground = baseFg });
+            return;
+        }
+
+        spans.Sort(static (a, b) =>
+        {
+            int byIndex = a.Index.CompareTo(b.Index);
+            return byIndex != 0 ? byIndex : a.PatternIndex.CompareTo(b.PatternIndex);
+        });
+
+        int last = 0;
+        int occupiedEnd = 0;
+        foreach (var (index, length, patternIndex) in spans)
+        {
+            if (index < occupiedEnd)
+                continue;
+
+            if (index > last)
+                Inlines.Add(new Run(text.Substring(last, index - last)) { Foreground = baseFg });
+
+            var style = MultiHighlightStyles[patternIndex % MultiHighlightStyles.Length];
+            Inlines.Add(new Run(text.Substring(index, length))
+            {
+                Background = new SolidColorBrush(style.Background),
+                Foreground = new SolidColorBrush(style.Foreground),
+                FontWeight = FontWeights.Bold
+            });
+            last = index + length;
+            occupiedEnd = last;
+        }
+
+        if (last < text.Length)
+            Inlines.Add(new Run(text.Substring(last)) { Foreground = baseFg });
     }
 }

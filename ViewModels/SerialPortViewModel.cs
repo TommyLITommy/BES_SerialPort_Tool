@@ -210,6 +210,7 @@ public class SerialPortViewModel : INotifyPropertyChanged
     public ICommand StartBatchSendCommand { get; }
     public ICommand StopBatchSendCommand { get; }
     public ICommand OpenLogInNotepadPlusPlusCommand { get; }
+    public ICommand OpenLogFolderCommand { get; }
 
     public event EventHandler? RequestClose;
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -243,6 +244,7 @@ public class SerialPortViewModel : INotifyPropertyChanged
         StartBatchSendCommand = new RelayCommand(_ => StartBatchSend(), _ => _service.IsOpen && !IsBatchSending);
         StopBatchSendCommand = new RelayCommand(_ => StopBatchSend(), _ => IsBatchSending);
         OpenLogInNotepadPlusPlusCommand = new RelayCommand(_ => OpenLogInNotepadPlusPlus());
+        OpenLogFolderCommand = new RelayCommand(_ => OpenLogFolder());
 
         Config.PropertyChanged += (_, e) =>
         {
@@ -589,6 +591,37 @@ public class SerialPortViewModel : INotifyPropertyChanged
         }
 
         StatusMessage = $"已在 Notepad++ 打开: {Path.GetFileName(logPath)}";
+    }
+
+    private void OpenLogFolder()
+    {
+        _logWriter.Flush();
+
+        var logPath = _logWriter.LogFilePath;
+        if (!string.IsNullOrEmpty(logPath) && File.Exists(logPath))
+        {
+            if (!ExplorerLauncher.TryRevealInExplorer(logPath, out var error))
+                StatusMessage = error ?? "打开文件夹失败";
+            else
+                StatusMessage = $"已打开日志所在文件夹: {Path.GetDirectoryName(logPath)}";
+            return;
+        }
+
+        var logDir = AppSettingsStore.LogsDirectory;
+        if (!Directory.Exists(logDir))
+        {
+            try { Directory.CreateDirectory(logDir); }
+            catch
+            {
+                StatusMessage = "请先打开串口以生成日志文件";
+                return;
+            }
+        }
+
+        if (!ExplorerLauncher.TryOpenFolder(logDir, out var folderError))
+            StatusMessage = folderError ?? "打开文件夹失败";
+        else
+            StatusMessage = $"已打开日志文件夹: {logDir}";
     }
 
     private void RebuildFilterRegex()

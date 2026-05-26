@@ -386,6 +386,9 @@
                         <Button Style="{StaticResource IconButton}" ToolTip="用 Notepad++ 打开当前日志" Command="{Binding OpenLogInNotepadPlusPlusCommand}">
                             <TextBlock Style="{StaticResource IconGlyph}" Text="&#xE8A5;" Foreground="{StaticResource PrimaryBrush}"/>
                         </Button>
+                        <Button Style="{StaticResource IconButton}" ToolTip="打开日志所在文件夹" Command="{Binding OpenLogFolderCommand}">
+                            <TextBlock Style="{StaticResource IconGlyph}" Text="&#xE8B7;" Foreground="{StaticResource PrimaryBrush}"/>
+                        </Button>
                         <Button Style="{StaticResource IconButton}" ToolTip="刷新串口列表" Command="{Binding RefreshPortsCommand}">
                             <TextBlock Style="{StaticResource IconGlyph}" Text="&#xE72C;" Foreground="{StaticResource PrimaryBrush}"/>
                         </Button>

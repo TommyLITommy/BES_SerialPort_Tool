@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -106,6 +107,13 @@ public partial class SerialPortControl : UserControl
         if (DataContext is SerialPortViewModel vm)
             vm.PresetDrawerWidth = width;
     }
+
+    private void ApplyFilterButton_Click(object sender, RoutedEventArgs e)
+    {
+        FilterRegexTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        if (DataContext is SerialPortViewModel vm)
+            vm.ApplyFilter();
+    }
     #endregion
 }
 
@@ -169,7 +177,7 @@ public class HighlightTextBlock : TextBlock
         DependencyProperty.Register(nameof(BaseForeground), typeof(Brush), typeof(HighlightTextBlock),
             new PropertyMetadata(Brushes.Black, OnHighlightPropertyChanged));
 
-    private bool _isUpdating;
+    private bool _highlightQueued;
 
     public string SourceText
     {
@@ -191,95 +199,102 @@ public class HighlightTextBlock : TextBlock
 
     private static void OnHighlightPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (d is HighlightTextBlock block) block.UpdateHighlight();
+        if (d is HighlightTextBlock block)
+            block.QueueUpdateHighlight();
+    }
+
+    private void QueueUpdateHighlight()
+    {
+        if (_highlightQueued)
+            return;
+
+        _highlightQueued = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _highlightQueued = false;
+            UpdateHighlight();
+        }, System.Windows.Threading.DispatcherPriority.DataBind);
     }
 
     private void UpdateHighlight()
     {
-        if (_isUpdating) return;
-        _isUpdating = true;
+        string text = SourceText ?? "";
+        string pattern = RegexPattern ?? "";
+        Brush baseFg = BaseForeground ?? Brushes.White;
+
+        Inlines.Clear();
+        if (string.IsNullOrEmpty(pattern) || string.IsNullOrEmpty(text))
+        {
+            Inlines.Add(new Run(text) { Foreground = baseFg });
+            return;
+        }
+
         try
         {
-            string text = SourceText ?? "";
-            string pattern = RegexPattern ?? "";
-            Brush baseFg = BaseForeground ?? Brushes.White;
-
-            Inlines.Clear();
-            if (string.IsNullOrEmpty(pattern) || string.IsNullOrEmpty(text))
-            {
-                Inlines.Add(new Run(text) { Foreground = baseFg });
-                return;
-            }
-
-            try
-            {
-                var subPatterns = RegexHelper.SplitAlternationPatterns(pattern);
-                if (subPatterns.Count > 1)
-                    ApplyMultiPatternHighlight(text, subPatterns, baseFg);
-                else
-                    ApplySinglePatternHighlight(text, pattern, baseFg);
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                Inlines.Add(new Run(text) { Foreground = baseFg });
-            }
-            catch (ArgumentException)
-            {
-                Inlines.Add(new Run(text) { Foreground = baseFg });
-            }
+            var subPatterns = RegexHelper.SplitAlternationPatterns(pattern);
+            if (subPatterns.Count > 1)
+                ApplyMultiPatternHighlight(text, pattern, subPatterns, baseFg);
+            else
+                ApplySinglePatternHighlight(text, pattern, baseFg);
         }
-        finally
+        catch (RegexMatchTimeoutException)
         {
-            _isUpdating = false;
+            Inlines.Add(new Run(text) { Foreground = baseFg });
+        }
+        catch (ArgumentException)
+        {
+            Inlines.Add(new Run(text) { Foreground = baseFg });
         }
     }
 
     private void ApplySinglePatternHighlight(string text, string pattern, Brush baseFg)
     {
-        var matches = Regex.Matches(text, pattern, RegexOptions.None, RegexHelper.DefaultMatchTimeout);
         int last = 0;
-        foreach (Match m in matches)
+        bool highlighted = false;
+        foreach (var m in RegexHelper.EnumerateMatches(pattern, text))
         {
+            highlighted = true;
             if (m.Index > last)
                 Inlines.Add(new Run(text.Substring(last, m.Index - last)) { Foreground = baseFg });
-            Inlines.Add(new Run(m.Value)
-            {
-                Background = new SolidColorBrush(MultiHighlightStyles[0].Background),
-                Foreground = Brushes.Black,
-                FontWeight = FontWeights.Bold
-            });
+            Inlines.Add(CreateHighlightRun(m.Value, MultiHighlightStyles[0]));
             last = m.Index + m.Length;
         }
-        if (last < text.Length)
+
+        if (!highlighted)
+            Inlines.Add(new Run(text) { Foreground = baseFg });
+        else if (last < text.Length)
             Inlines.Add(new Run(text.Substring(last)) { Foreground = baseFg });
     }
 
-    private void ApplyMultiPatternHighlight(string text, IReadOnlyList<string> subPatterns, Brush baseFg)
+    private void ApplyMultiPatternHighlight(string text, string fullPattern, IReadOnlyList<string> subPatterns, Brush baseFg)
     {
         var spans = new List<(int Index, int Length, int PatternIndex)>();
 
         for (int pi = 0; pi < subPatterns.Count; pi++)
         {
             string sub = subPatterns[pi];
-            if (string.IsNullOrEmpty(sub))
+            if (string.IsNullOrWhiteSpace(sub))
                 continue;
 
-            try
-            {
-                var matches = Regex.Matches(text, sub, RegexOptions.None, RegexHelper.DefaultMatchTimeout);
-                foreach (Match m in matches)
-                {
-                    if (m.Success && m.Length > 0)
-                        spans.Add((m.Index, m.Length, pi));
-                }
-            }
-            catch (RegexMatchTimeoutException)
-            {
-            }
-            catch (ArgumentException)
-            {
-            }
+            foreach (var m in RegexHelper.EnumerateMatches(sub.Trim(), text))
+                spans.Add((m.Index, m.Length, pi));
         }
+
+        if (spans.Count == 0)
+        {
+            ApplySinglePatternHighlight(text, fullPattern, baseFg);
+            return;
+        }
+
+        RenderHighlightSpans(text, spans, baseFg);
+    }
+
+    private void RenderHighlightSpans(string text, List<(int Index, int Length, int PatternIndex)> spans, Brush baseFg)
+    {
+        spans = spans
+            .Select(s => (s.Index, Math.Min(s.Length, Math.Max(0, text.Length - s.Index)), s.PatternIndex))
+            .Where(s => s.Index >= 0 && s.Item2 > 0)
+            .ToList();
 
         if (spans.Count == 0)
         {
@@ -287,34 +302,61 @@ public class HighlightTextBlock : TextBlock
             return;
         }
 
-        spans.Sort(static (a, b) =>
+        var boundaries = new SortedSet<int> { 0, text.Length };
+        foreach (var (index, length, _) in spans)
         {
-            int byIndex = a.Index.CompareTo(b.Index);
-            return byIndex != 0 ? byIndex : a.PatternIndex.CompareTo(b.PatternIndex);
-        });
+            boundaries.Add(index);
+            boundaries.Add(index + length);
+        }
 
+        var points = boundaries.ToList();
         int last = 0;
-        int occupiedEnd = 0;
-        foreach (var (index, length, patternIndex) in spans)
+        for (int i = 0; i < points.Count - 1; i++)
         {
-            if (index < occupiedEnd)
+            int segStart = points[i];
+            int segEnd = points[i + 1];
+            int segLen = segEnd - segStart;
+            if (segLen <= 0)
                 continue;
 
-            if (index > last)
-                Inlines.Add(new Run(text.Substring(last, index - last)) { Foreground = baseFg });
-
-            var style = MultiHighlightStyles[patternIndex % MultiHighlightStyles.Length];
-            Inlines.Add(new Run(text.Substring(index, length))
+            int? bestPattern = null;
+            int bestLen = -1;
+            foreach (var (index, length, patternIndex) in spans)
             {
-                Background = new SolidColorBrush(style.Background),
-                Foreground = new SolidColorBrush(style.Foreground),
-                FontWeight = FontWeights.Bold
-            });
-            last = index + length;
-            occupiedEnd = last;
+                int end = index + length;
+                if (index <= segStart && end >= segEnd)
+                {
+                    if (length > bestLen)
+                    {
+                        bestLen = length;
+                        bestPattern = patternIndex;
+                    }
+                }
+            }
+
+            if (segStart > last)
+                Inlines.Add(new Run(text.Substring(last, segStart - last)) { Foreground = baseFg });
+
+            if (bestPattern.HasValue)
+            {
+                var style = MultiHighlightStyles[bestPattern.Value % MultiHighlightStyles.Length];
+                Inlines.Add(CreateHighlightRun(text.Substring(segStart, segLen), style));
+            }
+            else
+                Inlines.Add(new Run(text.Substring(segStart, segLen)) { Foreground = baseFg });
+
+            last = segEnd;
         }
 
         if (last < text.Length)
             Inlines.Add(new Run(text.Substring(last)) { Foreground = baseFg });
     }
+
+    private static Run CreateHighlightRun(string value, (Color Background, Color Foreground) style) =>
+        new(value)
+        {
+            Background = new SolidColorBrush(style.Background),
+            Foreground = new SolidColorBrush(style.Foreground),
+            FontWeight = FontWeights.Bold
+        };
 }

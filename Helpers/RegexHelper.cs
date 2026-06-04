@@ -43,6 +43,7 @@ public static class RegexHelper
 
     /// <summary>
     /// 按未转义的竖线拆分为多个子正则（用于多色高亮，与过滤用的 OR 写法一致）。
+    /// 不拆分括号 ()、方括号 [] 内部的 |。
     /// </summary>
     public static IReadOnlyList<string> SplitAlternationPatterns(string pattern)
     {
@@ -51,6 +52,9 @@ public static class RegexHelper
 
         var parts = new List<string>();
         var current = new StringBuilder();
+        int depth = 0;
+        bool inBracket = false;
+
         for (int i = 0; i < pattern.Length; i++)
         {
             char c = pattern[i];
@@ -61,11 +65,43 @@ public static class RegexHelper
                 continue;
             }
 
-            if (c == '|')
+            if (c == '[' && !inBracket)
             {
-                parts.Add(current.ToString());
-                current.Clear();
+                inBracket = true;
+                current.Append(c);
                 continue;
+            }
+
+            if (c == ']' && inBracket)
+            {
+                inBracket = false;
+                current.Append(c);
+                continue;
+            }
+
+            if (!inBracket)
+            {
+                if (c == '(')
+                {
+                    depth++;
+                    current.Append(c);
+                    continue;
+                }
+
+                if (c == ')')
+                {
+                    if (depth > 0)
+                        depth--;
+                    current.Append(c);
+                    continue;
+                }
+
+                if (c == '|' && depth == 0)
+                {
+                    parts.Add(current.ToString());
+                    current.Clear();
+                    continue;
+                }
             }
 
             current.Append(c);
@@ -73,5 +109,20 @@ public static class RegexHelper
 
         parts.Add(current.ToString());
         return parts;
+    }
+
+    public static IEnumerable<Match> EnumerateMatches(string pattern, string text)
+    {
+        if (string.IsNullOrEmpty(pattern) || string.IsNullOrEmpty(text))
+            yield break;
+
+        if (!TryCreate(pattern, out var regex) || regex is null)
+            yield break;
+
+        foreach (Match m in regex.Matches(text))
+        {
+            if (m.Success && m.Length > 0)
+                yield return m;
+        }
     }
 }

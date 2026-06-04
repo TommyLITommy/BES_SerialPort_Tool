@@ -253,21 +253,18 @@ public class SerialPortViewModel : INotifyPropertyChanged
                 PersistSettings();
             }
 
-            if (e.PropertyName is nameof(SerialPortConfig.FilterRegex) or nameof(SerialPortConfig.FilterEnabled))
+            if (e.PropertyName == nameof(SerialPortConfig.FilterEnabled))
             {
                 RebuildFilterRegex();
-                if (e.PropertyName == nameof(SerialPortConfig.FilterEnabled))
+                _dispatcher.BeginInvoke(() =>
                 {
-                    _dispatcher.BeginInvoke(() =>
+                    lock (_dataLock)
                     {
-                        lock (_dataLock)
-                        {
-                            _filteredData.Clear();
-                            FilteredDisplayData.Clear();
-                            OnPropertyChanged(nameof(FilteredCount));
-                        }
-                    });
-                }
+                        _filteredData.Clear();
+                        FilteredDisplayData.Clear();
+                        OnPropertyChanged(nameof(FilteredCount));
+                    }
+                });
             }
         };
 
@@ -736,9 +733,7 @@ public class SerialPortViewModel : INotifyPropertyChanged
 
     public void ApplyFilter()
     {
-        if (!Config.FilterEnabled)
-            Config.FilterEnabled = true;
-
+        Config.FilterEnabled = true;
         RebuildFilterRegex();
         if (_cachedFilterRegex == null)
         {

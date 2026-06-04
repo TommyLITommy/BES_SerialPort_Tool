@@ -114,15 +114,30 @@ public static class RegexHelper
     public static IEnumerable<Match> EnumerateMatches(string pattern, string text)
     {
         if (string.IsNullOrEmpty(pattern) || string.IsNullOrEmpty(text))
-            yield break;
+            return Array.Empty<Match>();
 
         if (!TryCreate(pattern, out var regex) || regex is null)
-            yield break;
+            return Array.Empty<Match>();
 
-        foreach (Match m in regex.Matches(text))
+        var matches = new List<Match>();
+
+        try
         {
-            if (m.Success && m.Length > 0)
-                yield return m;
+            for (Match m = regex.Match(text); m.Success; m = m.NextMatch())
+            {
+                if (m.Length > 0)
+                    matches.Add(m);
+            }
         }
+        catch (RegexMatchTimeoutException)
+        {
+            return matches;
+        }
+        catch (ArgumentException)
+        {
+            return matches;
+        }
+
+        return matches;
     }
 }

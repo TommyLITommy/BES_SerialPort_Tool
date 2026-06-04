@@ -153,6 +153,9 @@ public class DirectionColorConverter : IValueConverter
 // ===================== 高亮文本 =====================
 public class HighlightTextBlock : TextBlock
 {
+    private readonly record struct HighlightSpan(int Index, int Length, int PatternIndex);
+    private readonly record struct HighlightSegment(int Start, int Length, int? PatternIndex);
+
     private static readonly (Color Background, Color Foreground)[] MultiHighlightStyles =
     {
         (Color.FromRgb(255, 215, 0), Colors.Black),
@@ -268,16 +271,16 @@ public class HighlightTextBlock : TextBlock
 
     private void ApplyMultiPatternHighlight(string text, string fullPattern, IReadOnlyList<string> subPatterns, Brush baseFg)
     {
-        var spans = new List<(int Index, int Length, int PatternIndex)>();
+        var spans = new List<HighlightSpan>();
 
         for (int pi = 0; pi < subPatterns.Count; pi++)
         {
-            string sub = subPatterns[pi];
+            string sub = subPatterns[pi].Trim();
             if (string.IsNullOrWhiteSpace(sub))
                 continue;
 
-            foreach (var m in RegexHelper.EnumerateMatches(sub.Trim(), text))
-                spans.Add((m.Index, m.Length, pi));
+            foreach (var m in RegexHelper.EnumerateMatches(sub, text))
+                spans.Add(new HighlightSpan(m.Index, m.Length, pi));
         }
 
         if (spans.Count == 0)
@@ -289,11 +292,11 @@ public class HighlightTextBlock : TextBlock
         RenderHighlightSpans(text, spans, baseFg);
     }
 
-    private void RenderHighlightSpans(string text, List<(int Index, int Length, int PatternIndex)> spans, Brush baseFg)
+    private void RenderHighlightSpans(string text, List<HighlightSpan> spans, Brush baseFg)
     {
         spans = spans
-            .Select(s => (s.Index, Math.Min(s.Length, Math.Max(0, text.Length - s.Index)), s.PatternIndex))
-            .Where(s => s.Index >= 0 && s.Item2 > 0)
+            .Select(s => new HighlightSpan(s.Index, Math.Min(s.Length, Math.Max(0, text.Length - s.Index)), s.PatternIndex))
+            .Where(s => s.Index >= 0 && s.Length > 0)
             .ToList();
 
         if (spans.Count == 0)
@@ -302,54 +305,19 @@ public class HighlightTextBlock : TextBlock
             return;
         }
 
-        var boundaries = new SortedSet<int> { 0, text.Length };
-        foreach (var (index, length, _) in spans)
+        foreach (var segment in BuildHighlightSegments(text.Length, spans))
         {
-            boundaries.Add(index);
-            boundaries.Add(index + length);
-        }
-
-        var points = boundaries.ToList();
-        int last = 0;
-        for (int i = 0; i < points.Count - 1; i++)
-        {
-            int segStart = points[i];
-            int segEnd = points[i + 1];
-            int segLen = segEnd - segStart;
-            if (segLen <= 0)
-                continue;
-
-            int? bestPattern = null;
-            int bestLen = -1;
-            foreach (var (index, length, patternIndex) in spans)
+            string value = text.Substring(segment.Start, segment.Length);
+            if (segment.PatternIndex.HasValue)
             {
-                int end = index + length;
-                if (index <= segStart && end >= segEnd)
-                {
-                    if (length > bestLen)
-                    {
-                        bestLen = length;
-                        bestPattern = patternIndex;
-                    }
-                }
-            }
-
-            if (segStart > last)
-                Inlines.Add(new Run(text.Substring(last, segStart - last)) { Foreground = baseFg });
-
-            if (bestPattern.HasValue)
-            {
-                var style = MultiHighlightStyles[bestPattern.Value % MultiHighlightStyles.Length];
-                Inlines.Add(CreateHighlightRun(text.Substring(segStart, segLen), style));
+                var style = MultiHighlightStyles[segment.PatternIndex.Value % MultiHighlightStyles.Length];
+                Inlines.Add(CreateHighlightRun(value, style));
             }
             else
-                Inlines.Add(new Run(text.Substring(segStart, segLen)) { Foreground = baseFg });
-
-            last = segEnd;
+            {
+                Inlines.Add(new Run(value) { Foreground = baseFg });
+            }
         }
-
-        if (last < text.Length)
-            Inlines.Add(new Run(text.Substring(last)) { Foreground = baseFg });
     }
 
     private static Run CreateHighlightRun(string value, (Color Background, Color Foreground) style) =>
@@ -359,4 +327,68 @@ public class HighlightTextBlock : TextBlock
             Foreground = new SolidColorBrush(style.Foreground),
             FontWeight = FontWeights.Bold
         };
+
+    private static IReadOnlyList<HighlightSegment> BuildHighlightSegments(int textLength, IReadOnlyList<HighlightSpan> spans)
+    {
+        var boundaries = new SortedSet<int> { 0, textLength };
+        foreach (var span in spans)
+        {
+            boundaries.Add(span.Index);
+            boundaries.Add(span.Index + span.Length);
+        }
+
+        var points = boundaries.ToList();
+        var segments = new List<HighlightSegment>(points.Count - 1);
+
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            int start = points[i];
+            int end = points[i + 1];
+            int length = end - start;
+            if (length <= 0)
+                continue;
+
+            int? patternIndex = SelectWinningPattern(spans, start, end);
+            AppendMergedSegment(segments, start, length, patternIndex);
+        }
+
+        return segments;
+    }
+
+    private static int? SelectWinningPattern(IReadOnlyList<HighlightSpan> spans, int segmentStart, int segmentEnd)
+    {
+        HighlightSpan? winner = null;
+
+        foreach (var span in spans)
+        {
+            int spanEnd = span.Index + span.Length;
+            if (span.Index > segmentStart || spanEnd < segmentEnd)
+                continue;
+
+            if (winner is null ||
+                span.PatternIndex < winner.Value.PatternIndex ||
+                (span.PatternIndex == winner.Value.PatternIndex && span.Index < winner.Value.Index) ||
+                (span.PatternIndex == winner.Value.PatternIndex && span.Index == winner.Value.Index && span.Length > winner.Value.Length))
+            {
+                winner = span;
+            }
+        }
+
+        return winner?.PatternIndex;
+    }
+
+    private static void AppendMergedSegment(List<HighlightSegment> segments, int start, int length, int? patternIndex)
+    {
+        if (segments.Count > 0)
+        {
+            var last = segments[^1];
+            if (last.Start + last.Length == start && last.PatternIndex == patternIndex)
+            {
+                segments[^1] = last with { Length = last.Length + length };
+                return;
+            }
+        }
+
+        segments.Add(new HighlightSegment(start, length, patternIndex));
+    }
 }

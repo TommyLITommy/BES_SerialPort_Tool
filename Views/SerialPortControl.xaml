@@ -16,6 +16,7 @@
         <conv:BoolToPortButtonBrushConverter x:Key="BoolToPortButtonBrushConverter"/>
         <views:InverseBoolConverter x:Key="InverseBoolConverter"/>
         <views:DirectionColorConverter x:Key="DirectionColorConverter"/>
+        <conv:StringNotEmptyToVisibilityConverter x:Key="StringNotEmptyToVisibilityConverter"/>
 
         <Style x:Key="PresetFieldTextBox" TargetType="TextBox">
             <Setter Property="FontSize" Value="12"/>
@@ -484,9 +485,33 @@
                             <Grid Grid.Column="0" Height="26" Margin="0,0,4,0" VerticalAlignment="Center">
                                 <TextBlock Text="正则" Style="{StaticResource MenuLabel}" VerticalAlignment="Center" Margin="0"/>
                             </Grid>
-                            <TextBox Grid.Column="1" x:Name="FilterRegexTextBox" Style="{StaticResource ModernTextBox}" Text="{Binding Config.FilterRegex, UpdateSourceTrigger=LostFocus}" Height="26" Padding="6,2" VerticalContentAlignment="Center" FontSize="12"/>
+                            <ComboBox Grid.Column="1"
+                                      x:Name="FilterRegexComboBox"
+                                      ItemsSource="{Binding FilterRegexSuggestions}"
+                                      Text="{Binding Config.FilterRegex, UpdateSourceTrigger=PropertyChanged}"
+                                      IsEditable="True"
+                                      IsTextSearchEnabled="False"
+                                      StaysOpenOnEdit="True"
+                                      Height="26"
+                                      Padding="6,2"
+                                      VerticalContentAlignment="Center"
+                                      FontSize="12"
+                                      BorderBrush="{StaticResource BorderBrush}"
+                                      Background="White"
+                                      Loaded="FilterRegexComboBox_Loaded"
+                                      PreviewKeyDown="FilterRegexComboBox_PreviewKeyDown"
+                                      KeyUp="FilterRegexComboBox_KeyUp"
+                                      GotKeyboardFocus="FilterRegexComboBox_GotKeyboardFocus"
+                                      DropDownClosed="FilterRegexComboBox_DropDownClosed"/>
                         </Grid>
-                        <Button Grid.Column="2" Style="{StaticResource PrimaryButton}" Content="应用" Margin="12,0,0,0" Width="45" Height="26" Padding="6,2" FontSize="11" VerticalContentAlignment="Center" Click="ApplyFilterButton_Click"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                            <Button Style="{StaticResource PrimaryButton}" Content="应用" Width="45" Height="26" Padding="6,2" FontSize="11" VerticalContentAlignment="Center" Click="ApplyFilterButton_Click"/>
+                            <TextBlock Text="{Binding AppliedFilterDisplayText}" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center"
+                                       Foreground="{StaticResource SuccessBrush}"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="280"
+                                       Visibility="{Binding AppliedFilterDisplayText, Converter={StaticResource StringNotEmptyToVisibilityConverter}}"
+                                       ToolTip="{Binding AppliedFilterDisplayText}"/>
+                        </StackPanel>
                     </Grid>
                 </Border>
 

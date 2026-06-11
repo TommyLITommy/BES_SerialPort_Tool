@@ -24,7 +24,10 @@ public static class AppSettingsStore
                 return new AppSettings();
 
             var json = File.ReadAllText(SettingsPath);
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            settings.Ports ??= new();
+            settings.RegexHistory ??= new();
+            return settings;
         }
         catch
         {

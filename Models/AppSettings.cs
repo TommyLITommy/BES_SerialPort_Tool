@@ -5,6 +5,7 @@ namespace SerialPortTool.Models;
 public class AppSettings
 {
     public List<PortSettingsEntry> Ports { get; set; } = new();
+    public List<string> RegexHistory { get; set; } = new();
     /// <summary>可选：Notepad++ 可执行文件完整路径</summary>
     public string NotepadPlusPlusPath { get; set; } = "";
 }

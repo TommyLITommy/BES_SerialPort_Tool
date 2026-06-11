@@ -22,6 +22,10 @@ public partial class SerialPortControl : UserControl
     private const double DrawerMinWidth = 300;
     private const double DrawerMaxWidth = 640;
     private const double DrawerDefaultWidth = 400;
+    private bool _isApplyingFilterRegexSuggestion;
+    private bool _isRefreshingFilterRegexSuggestions;
+    private bool _ignoreNextFilterRegexDropDownClosed;
+    private string? _pendingFilterRegexSuggestion;
 
     public SerialPortControl()
     {
@@ -110,9 +114,216 @@ public partial class SerialPortControl : UserControl
 
     private void ApplyFilterButton_Click(object sender, RoutedEventArgs e)
     {
-        FilterRegexTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        var combo = FilterRegexComboBox;
+        combo.IsDropDownOpen = false;
+        if (DataContext is not SerialPortViewModel vm)
+            return;
+
+        SyncFilterRegexFromEditor(combo, vm);
+        vm.ApplyFilter();
+        EnsureFilterRegexComboText(combo, vm.Config.FilterRegex);
+    }
+
+    private void FilterRegexComboBox_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is ComboBox combo)
+        {
+            combo.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler(FilterRegexComboBox_TextChanged));
+            RefreshFilterRegexSuggestions(combo, allowEmptyText: true);
+        }
+    }
+
+    private void FilterRegexComboBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_isApplyingFilterRegexSuggestion || sender is not ComboBox combo)
+            return;
+
+        if (combo.IsDropDownOpen && combo.SelectedItem is string)
+            return;
+
+        if (!_isApplyingFilterRegexSuggestion)
+            RefreshFilterRegexSuggestions(combo, allowEmptyText: false);
+    }
+
+    private void FilterRegexComboBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not ComboBox combo)
+            return;
+
+        if (e.Key is Key.Down or Key.Up)
+            return;
+
+        if ((e.Key is Key.Enter or Key.Tab) && combo.IsDropDownOpen && combo.SelectedItem is string selected)
+        {
+            AcceptFilterRegexSuggestion(combo, selected);
+            e.Handled = true;
+        }
+    }
+
+    private void FilterRegexComboBox_KeyUp(object sender, KeyEventArgs e)
+    {
+        if (sender is not ComboBox combo)
+            return;
+
+        if (_isApplyingFilterRegexSuggestion || e.Key is Key.Down or Key.Up or Key.Left or Key.Right)
+            return;
+
+        if (e.Key == Key.Escape)
+        {
+            _pendingFilterRegexSuggestion = null;
+            _ignoreNextFilterRegexDropDownClosed = true;
+            combo.IsDropDownOpen = false;
+            return;
+        }
+
+        if (e.Key == Key.Enter)
+        {
+            combo.IsDropDownOpen = false;
+            if (DataContext is SerialPortViewModel vm)
+            {
+                SyncFilterRegexFromEditor(combo, vm);
+                EnsureFilterRegexComboText(combo, vm.Config.FilterRegex);
+            }
+        }
+    }
+
+    private void FilterRegexComboBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is ComboBox combo)
+            RefreshFilterRegexSuggestions(combo, allowEmptyText: true);
+    }
+
+    private void FilterRegexComboBox_DropDownClosed(object sender, EventArgs e)
+    {
+        if (_isApplyingFilterRegexSuggestion || sender is not ComboBox combo)
+            return;
+
+        if (_ignoreNextFilterRegexDropDownClosed)
+        {
+            _ignoreNextFilterRegexDropDownClosed = false;
+            return;
+        }
+
+        if (combo.SelectedItem is not string selected)
+            return;
+
+        var currentText = GetFilterRegexEditorText(combo);
+        if (!string.IsNullOrEmpty(currentText) &&
+            !string.Equals(currentText, selected, StringComparison.Ordinal))
+            return;
+
+        _pendingFilterRegexSuggestion = selected;
+        Dispatcher.BeginInvoke(() => AcceptPendingFilterRegexSuggestion(combo), System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private static string GetFilterRegexEditorText(ComboBox combo)
+    {
+        if (combo.Template.FindName("PART_EditableTextBox", combo) is TextBox editor)
+            return editor.Text;
+        return combo.Text;
+    }
+
+    private static void SyncFilterRegexFromEditor(ComboBox combo, SerialPortViewModel vm)
+    {
+        var text = GetFilterRegexEditorText(combo);
+        combo.SelectedItem = null;
+        combo.Text = text;
+        vm.Config.FilterRegex = text;
+        combo.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
+    }
+
+    private static void EnsureFilterRegexComboText(ComboBox combo, string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        combo.SelectedItem = null;
+        if (combo.Template.FindName("PART_EditableTextBox", combo) is TextBox editor)
+        {
+            editor.Text = text;
+            editor.CaretIndex = text.Length;
+        }
+        else
+        {
+            combo.Text = text;
+        }
+
+        combo.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
+    }
+
+    private void RefreshFilterRegexSuggestions(ComboBox combo, bool allowEmptyText)
+    {
+        if (_isApplyingFilterRegexSuggestion || _isRefreshingFilterRegexSuggestions)
+            return;
+
+        var editor = combo.Template.FindName("PART_EditableTextBox", combo) as TextBox;
+        var currentText = editor?.Text ?? combo.Text;
+        var caretIndex = editor?.CaretIndex ?? currentText.Length;
+
+        _isRefreshingFilterRegexSuggestions = true;
+        try
+        {
+            combo.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
+            if (DataContext is SerialPortViewModel vm)
+            {
+                _ignoreNextFilterRegexDropDownClosed = true;
+                vm.UpdateFilterRegexSuggestions(currentText);
+            }
+
+            if (editor != null)
+            {
+                if (!string.Equals(editor.Text, currentText, StringComparison.Ordinal))
+                {
+                    editor.Text = currentText;
+                    editor.CaretIndex = Math.Clamp(caretIndex, 0, currentText.Length);
+                }
+            }
+            else if (!string.Equals(combo.Text, currentText, StringComparison.Ordinal))
+            {
+                combo.Text = currentText;
+            }
+
+            var shouldOpen = combo.Items.Count > 0 &&
+                             combo.IsKeyboardFocusWithin &&
+                             (allowEmptyText || !string.IsNullOrWhiteSpace(currentText));
+            if (combo.IsDropDownOpen != shouldOpen)
+            {
+                _ignoreNextFilterRegexDropDownClosed = true;
+                combo.IsDropDownOpen = shouldOpen;
+            }
+        }
+        finally
+        {
+            _isRefreshingFilterRegexSuggestions = false;
+        }
+    }
+
+    private void AcceptFilterRegexSuggestion(ComboBox combo, string selected)
+    {
+        if (string.IsNullOrEmpty(selected))
+            return;
+
+        _isApplyingFilterRegexSuggestion = true;
+        _pendingFilterRegexSuggestion = null;
+        combo.IsDropDownOpen = false;
         if (DataContext is SerialPortViewModel vm)
-            vm.ApplyFilter();
+        {
+            vm.Config.FilterRegex = selected;
+            EnsureFilterRegexComboText(combo, selected);
+        }
+        else
+        {
+            EnsureFilterRegexComboText(combo, selected);
+        }
+        _isApplyingFilterRegexSuggestion = false;
+    }
+
+    private void AcceptPendingFilterRegexSuggestion(ComboBox combo)
+    {
+        if (_isApplyingFilterRegexSuggestion || string.IsNullOrEmpty(_pendingFilterRegexSuggestion))
+            return;
+
+        AcceptFilterRegexSuggestion(combo, _pendingFilterRegexSuggestion);
     }
     #endregion
 }

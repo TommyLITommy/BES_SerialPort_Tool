@@ -46,8 +46,7 @@ public partial class SerialPortControl : UserControl
 
                 Dispatcher.BeginInvoke(() =>
                 {
-                    if (RawLogListBox.Items.Count > 0)
-                        RawLogListBox.ScrollIntoView(RawLogListBox.Items[^1]);
+                    RawLogViewer.ScrollToLatest();
                     if (FilteredLogListBox.Items.Count > 0)
                         FilteredLogListBox.ScrollIntoView(FilteredLogListBox.Items[^1]);
                 }, System.Windows.Threading.DispatcherPriority.Background);

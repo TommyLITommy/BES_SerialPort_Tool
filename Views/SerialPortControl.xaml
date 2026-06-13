@@ -563,13 +563,7 @@
                                     </Button>
                                 </Grid>
                             </Border>
-                            <ListBox Grid.Row="1" x:Name="RawLogListBox" Style="{StaticResource LogListBoxNoWrap}" ItemsSource="{Binding AllData}" ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding DisplayLine}" Foreground="{Binding Direction, Converter={StaticResource DirectionColorConverter}}" FontFamily="Consolas, 'Courier New', monospace" FontSize="12" TextWrapping="NoWrap"/>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                            <views:RawLogViewer Grid.Row="1" x:Name="RawLogViewer"/>
                         </Grid>
                     </Border>
 

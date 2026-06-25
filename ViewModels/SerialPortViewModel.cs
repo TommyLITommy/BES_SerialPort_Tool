@@ -37,7 +37,6 @@ public class SerialPortViewModel : INotifyPropertyChanged
     private const int DefaultPresetCount = 5;
     private const int MaxPresetCount = 20;
     private const int MaxFilterRegexHistory = 20;
-    private const int MaxFilterRegexSuggestions = 8;
     private Regex? _cachedFilterRegex;
     private string _appliedFilterDisplayText = "";
     private CancellationTokenSource? _batchCts;
@@ -279,7 +278,6 @@ public class SerialPortViewModel : INotifyPropertyChanged
         };
 
         RebuildFilterRegex();
-        UpdateFilterRegexSuggestions(Config.FilterRegex);
         LoadPresetCommands();
         PresetCommands.CollectionChanged += OnPresetCommandsChanged;
         ApplyRealtimeOutputState();
@@ -642,33 +640,21 @@ public class SerialPortViewModel : INotifyPropertyChanged
         RegexHelper.TryCreate(Config.FilterRegex, out _cachedFilterRegex);
     }
 
-    public void UpdateFilterRegexSuggestions(string? input)
+    public void LoadFilterRegexHistory()
     {
-        var keyword = input?.Trim() ?? "";
-        var suggestions = _appSettings.RegexHistory
+        var history = _appSettings.RegexHistory
             .Where(h => !string.IsNullOrWhiteSpace(h))
             .Distinct(StringComparer.Ordinal)
-            .Where(h => !string.Equals(h, keyword, StringComparison.Ordinal))
-            .Select((Pattern, Index) => new
-            {
-                Pattern,
-                Index,
-                Score = CalculateRegexHistoryScore(keyword, Pattern)
-            })
-            .Where(x => string.IsNullOrEmpty(keyword) || x.Score > 0)
-            .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.Index)
-            .Take(MaxFilterRegexSuggestions)
-            .Select(x => x.Pattern)
+            .Take(MaxFilterRegexHistory)
             .ToList();
 
-        if (suggestions.Count == FilterRegexSuggestions.Count &&
-            suggestions.Zip(FilterRegexSuggestions, string.Equals).All(match => match))
+        if (history.Count == FilterRegexSuggestions.Count &&
+            history.Zip(FilterRegexSuggestions, string.Equals).All(match => match))
             return;
 
         FilterRegexSuggestions.Clear();
-        foreach (var suggestion in suggestions)
-            FilterRegexSuggestions.Add(suggestion);
+        foreach (var item in history)
+            FilterRegexSuggestions.Add(item);
     }
 
     private void AddAppliedFilterRegexToHistory(string pattern)
@@ -684,75 +670,6 @@ public class SerialPortViewModel : INotifyPropertyChanged
             _appSettings.RegexHistory.RemoveRange(MaxFilterRegexHistory, _appSettings.RegexHistory.Count - MaxFilterRegexHistory);
 
         AppSettingsStore.Save(_appSettings);
-    }
-
-    private static int CalculateRegexHistoryScore(string keyword, string candidate)
-    {
-        if (string.IsNullOrEmpty(keyword))
-            return 1;
-
-        if (candidate.StartsWith(keyword, StringComparison.OrdinalIgnoreCase))
-            return 1000 + keyword.Length;
-
-        int containsIndex = candidate.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
-        if (containsIndex >= 0)
-            return 800 - containsIndex;
-
-        int subsequenceScore = CalculateSubsequenceScore(keyword, candidate);
-        if (subsequenceScore > 0)
-            return 400 + subsequenceScore;
-
-        int distance = CalculateLevenshteinDistance(keyword, candidate);
-        int maxLength = Math.Max(keyword.Length, candidate.Length);
-        int tolerance = Math.Max(2, keyword.Length / 2);
-        return distance <= tolerance ? 200 + maxLength - distance : 0;
-    }
-
-    private static int CalculateSubsequenceScore(string keyword, string candidate)
-    {
-        int ki = 0;
-        int score = 0;
-        foreach (char c in candidate)
-        {
-            if (ki >= keyword.Length)
-                break;
-
-            if (char.ToUpperInvariant(c) == char.ToUpperInvariant(keyword[ki]))
-            {
-                score++;
-                ki++;
-            }
-        }
-
-        return ki == keyword.Length ? score : 0;
-    }
-
-    private static int CalculateLevenshteinDistance(string left, string right)
-    {
-        if (left.Length == 0) return right.Length;
-        if (right.Length == 0) return left.Length;
-
-        var previous = new int[right.Length + 1];
-        var current = new int[right.Length + 1];
-
-        for (int j = 0; j <= right.Length; j++)
-            previous[j] = j;
-
-        for (int i = 1; i <= left.Length; i++)
-        {
-            current[0] = i;
-            for (int j = 1; j <= right.Length; j++)
-            {
-                int cost = char.ToUpperInvariant(left[i - 1]) == char.ToUpperInvariant(right[j - 1]) ? 0 : 1;
-                current[j] = Math.Min(
-                    Math.Min(current[j - 1] + 1, previous[j] + 1),
-                    previous[j - 1] + cost);
-            }
-
-            (previous, current) = (current, previous);
-        }
-
-        return previous[right.Length];
     }
 
     private void OnDataReceivedBatch(object? sender, List<SerialDataModel> batch)

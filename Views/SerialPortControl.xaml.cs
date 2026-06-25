@@ -23,7 +23,6 @@ public partial class SerialPortControl : UserControl
     private const double DrawerMaxWidth = 640;
     private const double DrawerDefaultWidth = 400;
     private bool _isApplyingFilterRegexSuggestion;
-    private bool _isRefreshingFilterRegexSuggestions;
     private bool _ignoreNextFilterRegexDropDownClosed;
     private string? _pendingFilterRegexSuggestion;
 
@@ -123,25 +122,12 @@ public partial class SerialPortControl : UserControl
         EnsureFilterRegexComboText(combo, vm.Config.FilterRegex);
     }
 
-    private void FilterRegexComboBox_Loaded(object sender, RoutedEventArgs e)
+    private void FilterRegexComboBox_DropDownOpened(object sender, EventArgs e)
     {
-        if (sender is ComboBox combo)
-        {
-            combo.AddHandler(TextBoxBase.TextChangedEvent, new TextChangedEventHandler(FilterRegexComboBox_TextChanged));
-            RefreshFilterRegexSuggestions(combo, allowEmptyText: true);
-        }
-    }
-
-    private void FilterRegexComboBox_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (_isApplyingFilterRegexSuggestion || sender is not ComboBox combo)
+        if (_isApplyingFilterRegexSuggestion || DataContext is not SerialPortViewModel vm)
             return;
 
-        if (combo.IsDropDownOpen && combo.SelectedItem is string)
-            return;
-
-        if (!_isApplyingFilterRegexSuggestion)
-            RefreshFilterRegexSuggestions(combo, allowEmptyText: false);
+        vm.LoadFilterRegexHistory();
     }
 
     private void FilterRegexComboBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -184,12 +170,6 @@ public partial class SerialPortControl : UserControl
                 EnsureFilterRegexComboText(combo, vm.Config.FilterRegex);
             }
         }
-    }
-
-    private void FilterRegexComboBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
-    {
-        if (sender is ComboBox combo)
-            RefreshFilterRegexSuggestions(combo, allowEmptyText: true);
     }
 
     private void FilterRegexComboBox_DropDownClosed(object sender, EventArgs e)
@@ -248,53 +228,6 @@ public partial class SerialPortControl : UserControl
         }
 
         combo.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
-    }
-
-    private void RefreshFilterRegexSuggestions(ComboBox combo, bool allowEmptyText)
-    {
-        if (_isApplyingFilterRegexSuggestion || _isRefreshingFilterRegexSuggestions)
-            return;
-
-        var editor = combo.Template.FindName("PART_EditableTextBox", combo) as TextBox;
-        var currentText = editor?.Text ?? combo.Text;
-        var caretIndex = editor?.CaretIndex ?? currentText.Length;
-
-        _isRefreshingFilterRegexSuggestions = true;
-        try
-        {
-            combo.GetBindingExpression(ComboBox.TextProperty)?.UpdateSource();
-            if (DataContext is SerialPortViewModel vm)
-            {
-                _ignoreNextFilterRegexDropDownClosed = true;
-                vm.UpdateFilterRegexSuggestions(currentText);
-            }
-
-            if (editor != null)
-            {
-                if (!string.Equals(editor.Text, currentText, StringComparison.Ordinal))
-                {
-                    editor.Text = currentText;
-                    editor.CaretIndex = Math.Clamp(caretIndex, 0, currentText.Length);
-                }
-            }
-            else if (!string.Equals(combo.Text, currentText, StringComparison.Ordinal))
-            {
-                combo.Text = currentText;
-            }
-
-            var shouldOpen = combo.Items.Count > 0 &&
-                             combo.IsKeyboardFocusWithin &&
-                             (allowEmptyText || !string.IsNullOrWhiteSpace(currentText));
-            if (combo.IsDropDownOpen != shouldOpen)
-            {
-                _ignoreNextFilterRegexDropDownClosed = true;
-                combo.IsDropDownOpen = shouldOpen;
-            }
-        }
-        finally
-        {
-            _isRefreshingFilterRegexSuggestions = false;
-        }
     }
 
     private void AcceptFilterRegexSuggestion(ComboBox combo, string selected)

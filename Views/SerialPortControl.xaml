@@ -498,10 +498,9 @@
                                       FontSize="12"
                                       BorderBrush="{StaticResource BorderBrush}"
                                       Background="White"
-                                      Loaded="FilterRegexComboBox_Loaded"
                                       PreviewKeyDown="FilterRegexComboBox_PreviewKeyDown"
                                       KeyUp="FilterRegexComboBox_KeyUp"
-                                      GotKeyboardFocus="FilterRegexComboBox_GotKeyboardFocus"
+                                      DropDownOpened="FilterRegexComboBox_DropDownOpened"
                                       DropDownClosed="FilterRegexComboBox_DropDownClosed"/>
                         </Grid>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
